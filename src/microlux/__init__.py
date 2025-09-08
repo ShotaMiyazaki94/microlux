@@ -14,7 +14,7 @@ from .basic_function import (
     to_centroid as to_centroid,
     to_lowmass as to_lowmass,
 )
-from .countour import contour_integral as contour_integral
+from .contour import contour_integral as contour_integral
 from .model import (
     binary_mag as binary_mag,
     extended_light_curve as extended_light_curve,

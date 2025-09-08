@@ -11,7 +11,7 @@ from .basic_function import (
     to_lowmass,
     verify,
 )
-from .countour import contour_integral
+from .contour import contour_integral
 from .limb_darkening import AbstractLimbDarkening, LinearLimbDarkening
 from .solution import (
     get_poly_coff,
