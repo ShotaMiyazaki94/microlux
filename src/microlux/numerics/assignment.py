@@ -1,3 +1,11 @@
+"""
+Linear sum assignment (Hungarian) for small cost matrices (JAX).
+
+Provides a JIT‑friendly implementation adapted from a JAX issue discussion,
+with minor changes to handle static shapes and to serve root matching needs in
+the binary lens solver.
+"""
+
 import time
 from itertools import count
 
@@ -9,6 +17,20 @@ jax.config.update("jax_enable_x64", True)
 
 
 def find_nearest(array1, parity1, array2, parity2):
+    """
+    Assign each element of `array1` to the best match in `array2`.
+
+    The cost combines geometric distance and a parity mismatch penalty.
+
+    Parameters:
+        array1 (jax.Array): Source elements (complex).
+        parity1 (jax.Array): Parity for `array1`.
+        array2 (jax.Array): Candidate targets (complex).
+        parity2 (jax.Array): Parity for `array2`.
+
+    Returns:
+        jax.Array: Column indices in `array2` for each row in `array1`.
+    """
     # linear sum assignment, the theoritical complexity is O(n^3) but our relization turns out to be much fast
     # for small cost matrix. adopted from https://github.com/google/jax/issues/10403 and I make it jit-able
     cost = (
@@ -22,6 +44,11 @@ def find_nearest(array1, parity1, array2, parity2):
 
 @jax.jit
 def augmenting_path(cost, u, v, path, row4col, i):
+    """
+    One augmenting‑path search used inside the Hungarian algorithm.
+
+    Returns the sink column and intermediate potentials and path data.
+    """
     minVal = 0
     remaining = jnp.arange(cost.shape[1])[::-1]
     num_remaining = cost.shape[1]
@@ -303,6 +330,7 @@ def solve(cost):
 
 
 def main():
+    """Simple benchmark/consistency check against SciPy's implementation."""
     from scipy.optimize import linear_sum_assignment
 
     key = random.PRNGKey(0)

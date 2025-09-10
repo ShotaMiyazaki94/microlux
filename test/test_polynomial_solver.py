@@ -3,8 +3,8 @@ from itertools import product
 import jax
 import jax.numpy as jnp
 import pytest
-from microlux.basic_function import get_poly_coff, to_lowmass
-from microlux.polynomial_solver import Aberth_Ehrlich, AE_roots0
+from microlux.core.lens_equation import get_poly_coff, to_lowmass
+from microlux.numerics.polynomial import Aberth_Ehrlich, AE_roots0
 from test_util import get_caustic_permutation
 
 

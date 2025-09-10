@@ -34,7 +34,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from .basic_function import (
+from ..core.lens_equation import (
     get_zeta_l,
     refine_gradient,
 )
@@ -47,10 +47,12 @@ from .solution import (
     get_real_roots,
     get_sorted_roots,
 )
-from .utils import (
+from ..core.state import (
     Error_State,
-    insert_body,
     Iterative_State,
+)
+from ..core.utils import (
+    insert_body,
     stop_grad_wrapper,
     warn_length_not_enough,
 )

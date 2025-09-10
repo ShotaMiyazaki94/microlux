@@ -1,11 +1,46 @@
+"""
+Error estimation for adaptive contour integration.
+
+This module implements the error terms used to control sampling density in the
+adaptive contour integration loop for binary microlensing. It provides
+parabolic correction terms for ordinary adjacent intervals and special handling
+near critical points where images are created or destroyed.
+
+Main functions:
+- `error_sum(...)`: Computes the per‑interval error histogram, plus correction
+  terms for critical events and the total parabolic correction used in the
+  magnification estimator.
+- `error_ordinary(...)`: Error and parabolic correction between adjacent
+  contour samples.
+- `error_critial(...)`: Error contribution near critical points (creation/
+  destruction of images) and associated parabolic correction.
+"""
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .basic_function import basic_partial, dot_product
+from ..core.lens_equation import basic_partial, dot_product
 
 
 def error_ordinary(deXProde2X, de_z, delta_theta, z, parity, de_deXPro_de2X):
+    """
+    Estimate error and parabolic correction on ordinary segments.
+
+    Parameters:
+        deXProde2X (jax.Array): Discrete approximation of x'·x'' along the contour.
+        de_z (jax.Array): Derivative of image position with respect to source angle.
+        delta_theta (jax.Array): Angle differences `theta[i+1] - theta[i]`.
+        z (jax.Array): Image positions for each angle sample.
+        parity (jax.Array): Parity (+1 or −1) of each image.
+        de_deXPro_de2X (jax.Array): Derivative of `x'·x''` w.r.t. theta
+            (only nonzero near caustic crossings).
+
+    Returns:
+        tuple:
+            - `e_tot` (jax.Array): Estimated error per interval (shape [N-1, ...]).
+            - `dAp` (jax.Array): Parabolic correction contribution per interval.
+    """
     dAp_1 = 1 / 24 * (deXProde2X[0:-1] + deXProde2X[1:]) * delta_theta
     delta_theta_wave = jnp.abs(z[0:-1] - z[1:]) ** 2 / jnp.abs(
         dot_product(de_z[0:-1], de_z[1:])
@@ -48,6 +83,26 @@ def error_ordinary(deXProde2X, de_z, delta_theta, z, parity, de_deXPro_de2X):
 
 
 def error_critial(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
+    """
+    Error estimation and parabolic correction near a critical point.
+
+    Parameters:
+        pos_idx (int | jax.Array): Column index of the positive‑parity branch.
+        neg_idx (int | jax.Array): Column index of the negative‑parity branch.
+        i (int | jax.Array): Row index of the critical sample.
+        create (int | jax.Array): +1 for creation, −1 for destruction.
+        parity (jax.Array): Parity matrix for all samples/images.
+        deXProde2X (jax.Array): Discrete `x'·x''` term.
+        z (jax.Array): Image positions.
+        de_z (jax.Array): Derivative of image position w.r.t. theta.
+
+    Returns:
+        tuple:
+            - `ce_tot` (jax.Array): Error contribution at the critical point.
+            - `dAcP` (jax.Array): Parabolic correction at the critical point.
+            - `magc` (jax.Array): Trapezoidal contribution to magnification at the
+              critical point, before normalization.
+    """
     # pos_idx=jnp.where(((Is_create[i]==create)|(Is_create[i]==10))&(parity[i]==-1*create),size=1)[0]
     # neg_idx=jnp.where(((Is_create[i]==create)|(Is_create[i]==10))&(parity[i]==1*create),size=1)[0]
     z_pos = z[i, pos_idx]
@@ -106,6 +161,23 @@ def error_critial(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
 
 
 def error_sum(Roots_State, rho, q, s, mask=None):
+    """
+    Compute error histogram and parabolic corrections for a full contour.
+
+    Parameters:
+        Roots_State (Iterative_State): Current state containing theta, roots,
+            parity, and creation/destruction markers.
+        rho (float): Source radius.
+        q (float): Mass ratio (m2/m1).
+        s (float): Binary separation (Einstein units).
+        mask (jax.Array | None): Optional boolean mask for valid samples/images.
+
+    Returns:
+        tuple:
+            - `error_hist` (jax.Array): Per‑row error estimates for adaptive sampling.
+            - `mag_c` (float): Critical‑point magnification contribution (pre‑norm).
+            - `parab` (float): Sum of parabolic correction terms (pre‑norm).
+    """
     Is_create = Roots_State.Is_create
     z = Roots_State.roots
     parity = Roots_State.parity

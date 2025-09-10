@@ -1,3 +1,10 @@
+"""
+Limb darkening profiles for extended source integration.
+
+Defines an abstract interface and a linear law implementation with cumulative
+profile used to integrate annuli efficiently.
+"""
+
 import abc
 
 from jax import numpy as jnp
@@ -5,10 +12,11 @@ from jax import numpy as jnp
 
 class AbstractLimbDarkening:
     """
+    Abstract base class for limb darkening models.
 
-    Abstract class for limb darkening model. The limb darkening model should have two methods:
-    - profile: the limb darkening profile at a given radius. This should be normalized with the average intensity = 1
-    - cumulative_profile: the cumulative limb darkening profile at a given radius integrated from the center to the r
+    Required methods:
+    - `profile(r)`: Intensity at radius `r` (normalized to unit mean).
+    - `cumulative_profile(r)`: Integrated intensity from center to radius `r`.
     """
 
     @abc.abstractmethod
@@ -22,7 +30,7 @@ class AbstractLimbDarkening:
 
 class LinearLimbDarkening(AbstractLimbDarkening):
     """
-    linear limb darkening model with the integration normalized to 1
+    Linear limb darkening model normalized to unit total flux.
     """
 
     a: float
@@ -31,9 +39,11 @@ class LinearLimbDarkening(AbstractLimbDarkening):
         self.a = a
 
     def profile(self, r: jnp.ndarray) -> jnp.ndarray:
+        """Surface brightness at radius `r` with unit mean normalization."""
         return 1 / (1 - self.a / 3) * (1 - self.a * (1 - jnp.sqrt(1 - r**2)))
 
     def cumulative_profile(self, r: jnp.ndarray) -> jnp.ndarray:
+        """Cumulative flux from center to radius `r` (0→1)."""
         mu = jnp.sqrt(1 - r**2)
 
         res = (self.a * (mu**2 - 2 / 3 * mu**3) - mu**2) / (1 - self.a / 3) + 1

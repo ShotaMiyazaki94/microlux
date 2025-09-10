@@ -1,15 +1,32 @@
+"""
+Adaptive contour-integration helpers for microlensing root management.
+
+Provides utilities to insert new sampling angles, solve and sort polynomial
+roots across rows, correct parity inconsistencies, detect creation/destruction
+events at caustics, and update working arrays while keeping JAX-friendly
+static shapes.
+
+Key functions:
+- add_points(...): insert samples and reorder roots consistently
+- get_sorted_roots(...): stable matching of roots across rows
+- get_real_roots(...): solve, filter physical images, fix parity
+- find_create_points(...): locate caustic creation/destruction events
+"""
+
 from functools import partial
 
 import jax
 import jax.numpy as jnp
 from jax import lax
 
-from .basic_function import get_parity, get_parity_error, get_poly_coff, verify
-from .linear_sum_assignment import find_nearest
-from .polynomial_solver import get_roots
-from .utils import (
+from ..core.lens_equation import get_parity, get_parity_error, get_poly_coff, verify
+from ..numerics.assignment import find_nearest
+from ..numerics.polynomial import get_roots
+from ..core.utils import (
     custom_delete,
     custom_insert,
+)
+from ..core.state import (
     Iterative_State,
     MAX_CAUSTIC_INTERSECT_NUM,
 )
@@ -20,8 +37,23 @@ jax.config.update("jax_enable_x64", True)
 
 def add_points(add_idx, add_zeta, add_theta, roots_State, s, m1, m2):
     """
-    add the new points in the adaptive sampling scheme
+    Insert new sampling rows and integrate them into the working state.
 
+    Parameters:
+        add_idx (jax.Array): Target insert indices per new row (−1 to skip).
+        add_zeta (jax.Array): Source positions at new angles.
+        add_theta (jax.Array): Angles to insert.
+        roots_State (Iterative_State): Current roots/sampling state.
+        s (float): Binary separation.
+        m1 (float): Primary mass fraction.
+        m2 (float): Secondary mass fraction.
+
+    Returns:
+        tuple:
+            - `Iterative_State`: Updated state with new rows inserted and roots
+              sorted across all rows.
+            - `buried_error` (jax.Array): Error accumulator for buried images.
+            - `outloop` (int): Count of deletions due to inconsistent parity.
     """
     sample_n, theta, roots, parity, ghost_roots_dis, sort_flag, Is_create = roots_State
     add_coff = get_poly_coff(add_zeta, s, m2)
@@ -78,8 +110,18 @@ def add_points(add_idx, add_zeta, add_theta, roots_State, s, m1, m2):
 
 def get_buried_error(ghost_roots_dis, sample_n):
     """
-    get the error to avoid the buried images. proposed by the Bozza 2010. We modify the criterion to a more conservative one to avoid the burried images.
+    Estimate error to guard against buried images near cusps.
 
+    Based on Bozza (2010); we use a conservative criterion to reduce the risk
+    of missing solutions when an image becomes temporarily hidden.
+
+    Parameters:
+        ghost_roots_dis (jax.Array): Distance metric between candidate ghost
+            roots used to flag potential buried images.
+        sample_n (int): Current number of valid sampling rows.
+
+    Returns:
+        jax.Array: Per‑row buried‑image error contribution.
     """
     n_ite = ghost_roots_dis.shape[0]
     error_buried = jnp.zeros((n_ite, 1))
@@ -139,8 +181,21 @@ def get_buried_error(ghost_roots_dis, sample_n):
 @partial(jax.jit, static_argnames=("max_unsorted_num",))
 def get_sorted_roots(roots, parity, sort_flag, max_unsorted_num):
     """
+    Stably match and reorder roots and parity across rows.
 
-    sort the roots and parity to keep the minimum distance between the adjacent points and same parity for the adjacent points
+    The cost function penalizes geometric distance and parity disagreement to
+    achieve consistent identity assignment for images across adjacent rows.
+
+    Parameters:
+        roots (jax.Array): Complex roots per row.
+        parity (jax.Array): Parity per root.
+        sort_flag (jax.Array | bool): Flags for rows that already have stable order.
+        max_unsorted_num (int): Upper bound on number of rows to resort.
+
+    Returns:
+        tuple:
+            - `indices_update` (jax.Array): Index map used for reordering.
+            - `sort_flag` (jax.Array): Updated flags (all True after resort).
     """
 
     indices = jnp.tile(jnp.arange(roots.shape[1]), (roots.shape[0], 1))
@@ -196,15 +251,29 @@ def get_sorted_roots(roots, parity, sort_flag, max_unsorted_num):
 
 def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
     """
-    get the real roots and parity for the new points. This function contains the following steps:
-        1. get the roots of the polynomial
-        2. get the parity of the roots
-        3. verify the roots by putting the roots into the lens equation
-        4. select the roots by the relative criterion same as the VBBinaryLensing
-        5. find the wrong parity and fix it
-        6. delete the remaining wrong roots/parity
+    Solve, validate, and filter physical roots for inserted rows.
 
+    Steps:
+        1. Solve polynomial roots for each row.
+        2. Compute parity of all roots.
+        3. Verify roots by direct substitution into the lens equation.
+        4. Select physical images using a relative error criterion (VBBL‑like).
+        5. Fix wrong parity when detected.
+        6. Delete remaining inconsistent roots/parity.
 
+    Parameters:
+        coff (jax.Array): Polynomial coefficients per row.
+        zeta_l (jax.Array): Source positions per row.
+        theta (jax.Array): Angles per row.
+        s (float): Binary separation.
+        m1 (float): Primary mass fraction.
+        m2 (float): Secondary mass fraction.
+        add_idx (jax.Array): Insert indices used for newly added rows.
+
+    Returns:
+        tuple: Ordered as in the caller expectations:
+            (`real_roots`, `real_parity`, `ghost_roots_dis`, `outloop`,
+             `coff`, `zeta_l`, `theta`, `add_idx`).
     """
 
     n_ite = zeta_l.shape[0]
@@ -307,6 +376,17 @@ def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
 
 
 def update_parity(carry):
+    """
+    Refine parity assignment for rows flagged as inconsistent.
+
+    Parameters:
+        carry (tuple): Packed state for parity update; contains `zeta_l`,
+            `real_roots`, `nan_num`, `sample_n`, `idx_parity_wrong`, `cond`,
+            `s`, `m1`, `m2`, `real_parity`.
+
+    Returns:
+        jax.Array: Updated `real_parity` array.
+    """
     (
         zeta_l,
         real_roots,
@@ -350,10 +430,11 @@ def update_parity(carry):
 
 def parity_5_roots_fun(carry):  ##对于5个根怎么判断其parity更加合理
     """
+    Determine parity for ambiguous 5‑image configurations.
 
-    Determine the parity of the roots for ambiguous cases with 5 roots
-    We first select principal and fifth roots, whose parity are 1 and -1, respectively.
-    The the rest three roots are sorted by their real parts (x-axis) and the middle one is assigned parity 1, the other two are assigned parity -1.
+    Strategy: select principal and fifth images (+1 and −1 parity respectively),
+    then sort the remaining three by x and assign (+1) to the middle image,
+    (−1) to the two side images.
     """
     ##对于parity计算错误的点，分为fifth principal left center right，其中left center right 的parity为-1，1，-1
     temp, zeta_l, real_parity, i, cond, nan_num, s, m1, m2 = carry
@@ -378,10 +459,11 @@ def parity_5_roots_fun(carry):  ##对于5个根怎么判断其parity更加合理
 
 def parity_3_roots_fun(carry):  ##对于3个根怎么判断其parity更加合理
     """
+    Determine parity for ambiguous 3‑image configurations.
 
-    Determine the parity of the roots for ambiguous cases with 3 roots:
-    The principal image is set to positive parity, and the other two images are set to negative parity.
-    This will only work for the case where the source is not very close to the x-axis where the criterion for judging the principal image is not valid.
+    Strategy: set principal image to positive parity; assign negative parity to
+    the other two. This is unreliable very near the x‑axis where the principal
+    criterion breaks down.
     """
     temp, zeta_l, real_parity, i, cond, nan_num, s, m1, m2 = carry
 
@@ -404,28 +486,18 @@ def parity_3_roots_fun(carry):  ##对于3个根怎么判断其parity更加合理
 
 def find_create_points(roots, parity, sample_n):
     """
-    find the image are created or destroyed and return the index of the created or destroyed points,
-    this index is used to determine the order for trapzoidal integration:
-        for image creation, the integration should be  (z.imag_- + z.imag_+)*(z.real_-  - z.real_+)
-        for image destruction, the integration should be (z.imag_- + z.imag_+)*(z.real_+  - z.real_-)
-    the create represents the flag for image creation or destruction :
-        if create=1, it means image creation, if create=-1, it means image destruction
-        and for image creation, the error should be added to the previous row, for image destruction, the error should be added to the next row
+    Locate creation/destruction events and encode their indices.
 
-    Parameters
-    ----------
-    roots : jnp.ndarray
-        the roots of the polynomial
-    parity : jnp.ndarray
-        the parity of the roots
-    sample_n : int
-        the number of the sample points
+    The returned structure is used to choose the correct trapezoid orientation
+    and to place error contributions at the proper rows for adaptive control.
 
-    Returns
-    -------
-    Is_create : jnp.ndarray
-        the row and column index of the created or destroyed points
+    Parameters:
+        roots (jax.Array): Image positions per row.
+        parity (jax.Array): Parity assignments per row.
+        sample_n (int): Effective number of valid rows.
 
+    Returns:
+        jax.Array: Encoded indices and flags with shape (4, MAX_CAUSTIC_INTERSECT_NUM).
     """
     cond = jnp.isnan(roots)
     Num_change_cond = jnp.diff(
@@ -466,7 +538,13 @@ def find_create_points(roots, parity, sample_n):
 
 def theta_remove_fun(carry):
     """
-    remove the points with wrong parity
+    Remove rows with parity still inconsistent after correction.
+
+    Parameters:
+        carry (tuple): Packed state containing sampling arrays and counters.
+
+    Returns:
+        tuple: Updated packed state after deletions.
     """
     (
         sample_n,

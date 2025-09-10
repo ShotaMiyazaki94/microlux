@@ -27,7 +27,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["microlux"]
+include = ["microlux", "microlux.*"]
 
 [tool.ruff]
 extend-include = ["*.ipynb"]

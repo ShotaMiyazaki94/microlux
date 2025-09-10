@@ -1,3 +1,12 @@
+"""
+Lens equation helpers and analytic derivatives for binary microlensing.
+
+This module defines coordinate transforms, polynomial coefficients for the
+binary lens equation, quadrupole/ghost/planetary tests for point‑source
+validity, and compact analytic derivatives used by the adaptive integrator and
+its gradient refinements.
+"""
+
 import jax
 import jax.numpy as jnp
 
@@ -7,15 +16,15 @@ jax.config.update("jax_enable_x64", True)
 
 def to_centroid(s, q, x):
     """
-    Transforms the coordinate system to the centroid.
+    Transform coordinates to the system centered at the mass centroid.
 
     Parameters:
-    s (float): The projected separation between the two objects.
-    q (float): The planet to host mass ratio.
-    x (complex): The original coordinate.
+        s (float): Projected separation between the two masses.
+        q (float): Mass ratio (m2/m1).
+        x (complex | jax.Array): Original coordinate(s).
 
     Returns:
-    complex: The transformed coordinate in the centroid system.
+        complex | jax.Array: Coordinates in the centroid frame.
     """
     delta_x = s / (1 + q)
     return -(jnp.conj(x) - delta_x)
@@ -23,15 +32,15 @@ def to_centroid(s, q, x):
 
 def to_lowmass(s, q, x):
     """
-    Transforms the coordinate system to the system where the lower mass object is at the origin.
+    Transform coordinates to the frame where the low‑mass body is at the origin.
 
     Parameters:
-    s (float): The separation between the two components.
-    q (float): The mass ratio of the two components.
-    x (complex): The original centroid coordinate.
+        s (float): Projected separation between the two masses.
+        q (float): Mass ratio (m2/m1).
+        x (complex | jax.Array): Centroid‑frame coordinate(s).
 
     Returns:
-    complex: The transformed coordinate in the low mass component coordinate system.
+        complex | jax.Array: Coordinates in the low‑mass frame.
     """
     delta_x = s / (1 + q)
     return -jnp.conj(x) + delta_x
@@ -39,9 +48,21 @@ def to_lowmass(s, q, x):
 
 def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
     """
-    The quadrupole test, ghost image test, and planetary caustic test proposed by Bozza 2010 to check the validity of the point source approximation.
-    The coefficients are fine-tuned in our implementation.
+    Quadrupole, ghost, and planetary tests for point‑source validity.
 
+    Parameters:
+        rho (float): Source radius.
+        s (float): Binary separation.
+        q (float): Mass ratio (m2/m1).
+        zeta (jax.Array): Source positions (broadcastable to images).
+        z (jax.Array): Image positions.
+        cond (jax.Array): Boolean mask of candidate physical images.
+        tol (float): Absolute tolerance target for the tests.
+
+    Returns:
+        tuple:
+            - `cond_final` (jax.Array): Whether point‑source approximation holds.
+            - `mag` (jax.Array): Sum of |1/J| across valid images per row.
     """
     m1 = 1 / (1 + q)
     m2 = q / (1 + q)
@@ -99,8 +120,18 @@ def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
 
 def get_poly_coff(zeta_l, s, m2):
     """
-    get the polynomial cofficients of the polynomial equation of the lens equation. The low mass object is at the origin and the primary is at s.
-    The input zeta_l should have the shape of (n,1) for broadcasting.
+    Build polynomial coefficients for the binary lens equation.
+
+    The low‑mass object is at the origin and the primary at `s`. Input should
+    broadcast over rows as `(n, 1)` for zeta.
+
+    Parameters:
+        zeta_l (jax.Array): Source positions in the low‑mass frame, shape `(n, 1)`.
+        s (float): Binary separation.
+        m2 (float): Secondary mass fraction.
+
+    Returns:
+        jax.Array: Coefficients ordered for `jnp.polyval` as `[c5, c4, ..., c0]`.
     """
     zeta_conj = jnp.conj(zeta_l)
     c0 = s**2 * zeta_l * m2**2
@@ -126,33 +157,59 @@ def get_poly_coff(zeta_l, s, m2):
 
 
 def get_zeta_l(rho, trajectory_centroid_l, theta):  # 获得等高线采样的zeta
+    """
+    Construct source positions along a circular contour of radius `rho`.
+
+    Parameters:
+        rho (float): Source radius.
+        trajectory_centroid_l (jax.Array): Center positions in the low‑mass frame.
+        theta (jax.Array): Sample angles.
+
+    Returns:
+        jax.Array: Source positions `zeta_l`.
+    """
     zeta_l = trajectory_centroid_l + rho * jnp.exp(1j * theta)
     return zeta_l
 
 
 def verify(zeta_l, z_l, s, m1, m2):  # verify whether the root is right
+    """
+    Residual of the lens equation to assess root accuracy.
+
+    Returns the absolute residual |z − m1/(conj(z)−s) − m2/conj(z) − zeta|.
+    """
     return jnp.abs(z_l - m1 / (jnp.conj(z_l) - s) - m2 / jnp.conj(z_l) - zeta_l)
 
 
 def get_parity(z, s, m1, m2):  # get the parity of roots
+    """
+    Compute image parity sign based on the Jacobian determinant.
+    """
     de_conjzeta_z1 = m1 / (jnp.conj(z) - s) ** 2 + m2 / jnp.conj(z) ** 2
     return jnp.sign((1 - jnp.abs(de_conjzeta_z1) ** 2))
 
 
 def get_parity_error(z, s, m1, m2):
+    """
+    Magnitude of the parity determinant (for ranking ambiguous cases).
+    """
     de_conjzeta_z1 = m1 / (jnp.conj(z) - s) ** 2 + m2 / jnp.conj(z) ** 2
     return jnp.abs((1 - jnp.abs(de_conjzeta_z1) ** 2))
 
 
 def dot_product(a, b):
+    """
+    Real 2D dot product for complex vectors `a` and `b`.
+    """
     return jnp.real(a) * jnp.real(b) + jnp.imag(a) * jnp.imag(b)
 
 
 def basic_partial(z, theta, rho, q, s, caustic_crossing):
     """
+    Basic partial derivatives used by the error estimator.
 
-    basic partial derivatives of the lens equation with respect to zeta, z, and theta used in the error estimation.
-
+    Computes `de_z`, `deXProde2X`, and, if `caustic_crossing` is True, the
+    derivative of `x'·x''` w.r.t. theta.
     """
     z_c = jnp.conj(z)
     parZetaConZ = 1 / (1 + q) * (1 / (z_c - s) ** 2 + q / z_c**2)
@@ -212,8 +269,10 @@ def refine_gradient(zeta_l, q, s, z):
 @refine_gradient.defjvp
 def refine_gradient_jvp(primals, tangents):
     """
-    use the custom jvp to refine the gradient of roots respect to zeta_l, based on the equation on V.Bozza 2010 eq 20 and also see our paper for the details
-    This will simplify the computational graph and accelerate the gradient calculation
+    Custom JVP to refine gradients of roots w.r.t. `zeta_l`.
+
+    Based on Bozza (2010), Eq. 20. Keeps the autodiff graph compact and speeds
+    gradient computation for reverse‑mode differentiation.
     """
     zeta, q, s, z = primals
     tangent_zeta, tangent_q, tangent_s, tangent_z = tangents

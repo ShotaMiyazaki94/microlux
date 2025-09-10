@@ -1,3 +1,11 @@
+"""
+High‑level light curve models for binary microlensing.
+
+Provides point‑source and extended‑source magnification models, choosing
+between a fast quadrupole/ghost/planet test or full adaptive contour
+integration. Optional limb darkening is supported via cumulative annuli.
+"""
+
 from functools import partial
 from typing import Tuple
 
@@ -6,18 +14,16 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from .basic_function import (
+from .core.lens_equation import (
     Quadrupole_test,
     to_lowmass,
     verify,
-)
-from .contour import contour_integral
-from .limb_darkening import AbstractLimbDarkening, LinearLimbDarkening
-from .solution import (
     get_poly_coff,
-    get_roots,
 )
-from .utils import (
+from .algorithms.contour import contour_integral
+from .physics.limb_darkening import AbstractLimbDarkening, LinearLimbDarkening
+from .numerics.polynomial import get_roots
+from .core.state import (
     get_default_state,
 )
 
@@ -28,25 +34,18 @@ jax.config.update("jax_enable_x64", True)
 # @partial(jax.jit,static_argnames=['return_num'])
 def point_light_curve(trajectory_l, s, q, rho, tol, return_num: bool = False):
     """
-    Calculate the point source light curve.
+    Point‑source magnification via quadrupole/ghost/planet tests.
 
-    **Parameters**
+    Parameters:
+        trajectory_l (jax.Array): Source trajectory in the low‑mass frame.
+        s (float): Binary separation.
+        q (float): Mass ratio (m2/m1).
+        rho (float): Source radius.
+        tol (float): Absolute tolerance target for the quadrupole test.
+        return_num (bool): If True, also return number of selected images.
 
-    - `trajectory_l`: The trajectory of the lensing event.
-    - `s`: The projected separation between the lens and the source.
-    - `q` : The mass ratio between the lens and the source.
-    - `rho`: The source radius in units of the Einstein radius.
-    - `tol`: The absolute tolerance for the quadrupole test.
-    - `return_num`: Whether to return the number of real roots. Defaults to False.
-
-    **Returns**
-
-    - `result`: A tuple containing:
-        - The magnification array.
-        - A boolean array indicating the validity of the calculation. If the quadrupole test is passed, the corresponding element in the boolean array is `True`.
-        - If `return_num` is `True`, the tuple will also contain the number of real roots.
-    - `cond`: A boolean array indicating whether the quadrupole test is passed. `True` means the quadrupole test is passed.
-    - `mask`: An integer array indicating the number of real roots.
+    Returns:
+        tuple | jax.Array: `(mag, cond[, n_roots])` if `return_num` else `(mag, cond)`.
     """
 
     m1 = 1 / (1 + q)
@@ -103,40 +102,31 @@ def binary_mag(
     return_info: bool = False,
     limb_darkening_coeff: float | None = None,
 ):
-    # write the docstring with same format as the point_light_curve
     """
-    Compute the light curve of a binary lens system with finite source effects.
-    This function will dynamically choose full contour integration or point source approximation based on the quadrupole test.
+    Binary lens light curve with optional limb darkening (finite source).
 
-    !!! note
-        The coordinate system is consistent with the MulensModel(Center of mass).
+    Chooses point‑source approximation via `Quadrupole_test` when valid,
+    otherwise falls back to adaptive contour integration.
 
-    !!! warning
-        Currently, to deal with limb-darkening effect, we only use 10 annuli which are uniformly distributed in terms of the area,
-        which is **not** in an adaptive scheme. So the tolerance of the limb darkening effect is not guaranteed.
+    Parameters:
+        t_0 (float): Event peak time.
+        u_0 (float): Impact parameter.
+        t_E (float): Einstein time.
+        rho (float): Source radius.
+        q (float): Mass ratio (m2/m1).
+        s (float): Binary separation.
+        alpha_deg (float): Trajectory angle in degrees.
+        times (jax.Array): Times to evaluate.
+        tol (float): Absolute tolerance for contour integration.
+        retol (float): Relative tolerance for contour integration.
+        default_strategy (tuple[int, ...]): Array growth plan per layer.
+        analytic (bool): Use analytic chain rule for reverse‑mode and compact graph.
+        return_info (bool): If True, return additional internal state.
+        limb_darkening_coeff (float | None): Linear limb darkening coefficient.
 
-    **Parameters**
-
-    - `t_0`: The time of the peak of the microlensing event.
-    - `u_0`: The impact parameter of the source trajectory.
-    - `t_E`: The Einstein crossing time.
-    - `rho`: The source radius normalized to the Einstein radius.
-    - `q`: The planet to host mass ratio of the binary lens system.
-    - `s`: The projected separation of the binary lens system normalized to the Einstein radius.
-    - `alpha_deg`: The angle between the source trajectory and the binary axis in degrees.
-    - `times`: The times at which to compute the model.
-    - `tol`: The tolerance for the adaptive contour integration. Defaults to 1e-2.
-    - `retol`: The relative tolerance for the adaptive contour integration. Defaults to 0.001.
-    - `default_strategy`: The default strategy for the contour integration. Defaults to (30, 30, 60, 120, 240). more details can be found in the [`microlux.contour_integral`][].
-    - `analytic`: Whether to use the analytic chain rule to simplify the computation graph. Set this to True will accelerate the computation of the gradient and will support the reverse mode differentiation containing the while loop. But set this to True will slow down if only calculate the model without differentiation. Defaults to True.
-    - `return_info`: Whether to return additional information about the computation. Defaults to False.
-    - `limb_darkening_coeff`: The limb darkening coefficient for the source star. Defaults to None. currently only support linear limb darkening.
-
-
-    **Returns**
-
-    - `magnification`: The magnification of the source at the given times.
-    - `info`: Additional information about the computation used for debugging if return_info is True.
+    Returns:
+        jax.Array | tuple: Magnification array, and if `return_info` is True,
+        also the final internal state for the last time sample.
     """
     # Here the parameterization is consistent with Mulensmodel and VBBinaryLensing
     ### initialize parameters
@@ -190,14 +180,23 @@ def extended_light_curve(
     n_annuli: int = 10,
 ):
     """
-    compute the light curve of a binary lens system with finite source effects.
+    Finite‑source magnification along a trajectory, with optional limb darkening.
 
-    **Parameters**
+    Parameters:
+        trajectory_l (jax.Array): Low‑mass‑frame trajectory.
+        s (float): Binary separation.
+        q (float): Mass ratio (m2/m1).
+        rho (float): Source radius.
+        tol (float): Absolute tolerance for contour integration.
+        retol (float): Relative tolerance for contour integration.
+        default_strategy (tuple[int, ...]): Array growth plan per layer.
+        analytic (bool): Use analytic chain rule for reverse‑mode and compact graph.
+        return_info (bool): If True, return additional internal state.
+        limb_darkening (AbstractLimbDarkening | None): Limb darkening model.
+        n_annuli (int): Number of annuli when integrating limb darkening.
 
-    - `trajectory_l`: The trajectory in the low mass coordinate system.
-    - `n_annuli`: The number of annuli for the limb darkening calculation.
-    - for the definition of the other parameters, please see [`microlux.binary_mag`][].
-
+    Returns:
+        jax.Array | tuple: Magnification array; if `return_info`, also state.
     """
 
     mag, cond = point_light_curve(trajectory_l, s, q, rho, tol)

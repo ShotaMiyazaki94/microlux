@@ -1,3 +1,11 @@
+"""
+Polynomial root solvers and utilities (JAX) for the binary lens equation.
+
+Implements the Aberth–Ehrlich method with custom_root for differentiability,
+plus helpers to generate initial guesses and batched solvers. All functions are
+JIT‑friendly and use complex dtype with x64 enabled.
+"""
+
 import jax
 
 
@@ -8,6 +16,9 @@ from jax import lax, numpy as jnp
 
 
 def loop_body(roots0, coff):  # 采用判断来减少浪费
+    """
+    Single AE update step used inside `lax.scan` over coefficient rows.
+    """
     def False_fun(carry):
         coff, roots0 = carry
         roots_new = Aberth_Ehrlich(coff, roots0)
@@ -19,6 +30,16 @@ def loop_body(roots0, coff):  # 采用判断来减少浪费
 
 @partial(jax.jit, static_argnums=0)
 def get_roots(sample_n, coff):
+    """
+    Solve roots row‑wise using AE iteration, reusing previous guesses.
+
+    Parameters:
+        sample_n (int): Unused static arg to stabilize JIT cache keys.
+        coff (jax.Array): Polynomial coefficients per row.
+
+    Returns:
+        jax.Array: Roots per row, matching the shape of input rows.
+    """
     roots0 = AE_roots0(coff[0])
     _, roots = lax.scan(loop_body, roots0, coff)  # scan循环，但是没有浪费
     return roots
@@ -26,7 +47,11 @@ def get_roots(sample_n, coff):
 
 @partial(jax.jit, static_argnums=0)
 def get_roots_vmap(sample_n, coff):
-    ## used when solving the coff without zero coffes
+    """
+    Solve roots row‑wise using `vmap` when all rows are valid.
+
+    Useful when there are no sentinel rows with zero coefficients.
+    """
     roots_solver = lambda x: Aberth_Ehrlich(x, AE_roots0(x))
     roots = jax.vmap(roots_solver, in_axes=(0))(coff)
     return roots
@@ -204,14 +229,13 @@ def get_roots_vmap(sample_n, coff):
 @jax.jit
 def AE_roots0(coff: jnp.ndarray) -> jnp.ndarray:
     """
-    Computes the initial guesses using the Aberth-Ehrlich method. This code is adapted from [https://github.com/afoures/aberth-method](https://github.com/afoures/aberth-method)
-    **Args**:
+    Generate initial guesses for AE using annulus sampling.
 
-    - `coff` (ndarray): Coefficients of the polynomial.
+    Parameters:
+        coff (jax.Array): Polynomial coefficients (single row).
 
-    **Returns**:
-
-    - `initial_guess`: Initial guesses for the roots of the polynomial.
+    Returns:
+        jax.Array: Complex initial guesses for all roots.
     """
 
     def UV(coff):
@@ -241,19 +265,15 @@ def Aberth_Ehrlich(
     coff: jnp.ndarray, roots: jnp.ndarray, MAX_ITER: int = 50
 ) -> jnp.ndarray:
     """
-    Solves a polynomial equation using the Aberth-Ehrlich method. Adapted from [https://github.com/afoures/aberth-method](https://github.com/afoures/aberth-method).
-    Use `jax.lax.custom_root` to get precise derivative in automatic differentiation.
+    Aberth–Ehrlich iteration with differentiable custom_root wrapper.
 
-    **Parameters**:
+    Parameters:
+        coff (jax.Array): Polynomial coefficients.
+        roots (jax.Array): Initial guesses for the roots.
+        MAX_ITER (int): Maximum number of iterations. Default 50.
 
-    - `coff`: Coefficients of the polynomial equation.
-    - `roots`: Initial guesses for the roots of the polynomial equation.
-    - `MAX_ITER`: Maximum number of iterations. Defaults to 100.
-
-    **Returns**:
-
-    - `roots`: The roots of the polynomial equation.
-
+    Returns:
+        jax.Array: Refined roots for the input polynomial.
     """
     derp = jnp.polyder(coff)
     mask = 1 - jnp.eye(roots.shape[0])

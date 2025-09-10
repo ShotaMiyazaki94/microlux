@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import VBBinaryLensing
 from microlux import contour_integral, extended_light_curve, to_lowmass
-from microlux.limb_darkening import LinearLimbDarkening
+from microlux.physics.limb_darkening import LinearLimbDarkening
 from test_util import get_caustic_permutation
 
 
