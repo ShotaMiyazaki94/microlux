@@ -1,9 +1,14 @@
+"""
+Benchmark magnification map generation with VBBL vs. JAX (microlux).
+
+This is a standalone, heavy benchmark script (not a pytest). Run directly:
+
+    python scripts/benchmark_mag_map.py
+
+Optional deps: VBBinaryLensing (for VBBL reference), tqdm (progress bar).
+"""
+
 import os
-
-
-process_number = 100
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=%d" % process_number
-
 import time
 from functools import partial
 from multiprocessing import Pool
@@ -11,7 +16,53 @@ from multiprocessing import Pool
 import jax
 import jax.numpy as jnp
 import numpy as np
-from test_util import VBBL_light_curve
+
+# Lightweight tqdm fallback
+try:  # pragma: no cover
+    from tqdm import tqdm  # type: ignore
+except Exception:  # pragma: no cover
+    def tqdm(x, **kwargs):
+        return x
+
+
+def VBBL_light_curve(
+    t_0,
+    u_0,
+    t_E,
+    rho,
+    q,
+    s,
+    alpha_deg,
+    times,
+    retol=0.0,
+    tol=1e-2,
+    limb_darkening: None | float = None,
+):
+    """
+    VBBinaryLensing light curve in the centroid coordinate system.
+
+    Returns numpy array of magnification values. Requires VBBinaryLensing.
+    """
+    try:
+        import VBBinaryLensing
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "VBBinaryLensing is required for VBBL comparison. Please install it."
+        ) from e
+
+    VBBL = VBBinaryLensing.VBBinaryLensing()
+    if limb_darkening is not None:
+        VBBL.a1 = limb_darkening
+    alpha_VBBL = np.pi + alpha_deg / 180 * np.pi
+    VBBL.Tol = tol
+    VBBL.RelTol = retol
+    times = np.array(times)
+    tau = (times - t_0) / t_E
+    y1 = -u_0 * np.sin(alpha_VBBL) + tau * np.cos(alpha_VBBL)
+    y2 = u_0 * np.cos(alpha_VBBL) + tau * np.sin(alpha_VBBL)
+    params = [np.log(s), np.log(q), u_0, alpha_VBBL, np.log(rho), np.log(t_E), t_0]
+    VBBL_mag = VBBL.BinaryLightCurve(params, times, y1, y2)
+    return np.array(VBBL_mag)
 
 
 np.seterr(divide="ignore", invalid="ignore")
@@ -30,6 +81,10 @@ def mag_map_vbbl(i, all_params, fix_params):
 
 
 if __name__ == "__main__":
+    process_number = 100
+    os.environ["XLA_FLAGS"] = (
+        "--xla_force_host_platform_device_count=%d" % process_number
+    )
     # mp.set_start_method('spawn')
     trajectory_n = 1000
     sample_n = 1000
@@ -61,8 +116,6 @@ if __name__ == "__main__":
         parameter_space[k] = [rho, q, s]
 
     # vbbl mag map test
-
-    from tqdm import tqdm
 
     start = time.perf_counter()
     mag_vbbl_warp = partial(

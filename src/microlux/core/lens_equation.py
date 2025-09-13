@@ -1,17 +1,23 @@
 """
 Lens equation helpers and analytic derivatives for binary microlensing.
 
-This module defines coordinate transforms, polynomial coefficients for the
-binary lens equation, quadrupole/ghost/planetary tests for point‑source
-validity, and compact analytic derivatives used by the adaptive integrator and
-its gradient refinements.
+Defines coordinate transforms, polynomial coefficients for the binary lens
+equation, quadrupole/ghost/planetary tests for point‑source validity, and
+compact analytic derivatives used by the adaptive integrator and its gradient
+refinements.
 """
 
 import jax
 import jax.numpy as jnp
 
 
-jax.config.update("jax_enable_x64", True)
+ # jax config moved to package __init__ to ensure early initialization
+
+
+# Tunable constants for the quadrupole/ghost/planetary tests (VBBL-inspired)
+C_QUADRUPOLE = 2
+C_GHOST = 3
+C_PLANET = 4
 
 
 def to_centroid(s, q, x):
@@ -66,9 +72,10 @@ def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
     """
     m1 = 1 / (1 + q)
     m2 = q / (1 + q)
-    cQ = 2
-    cG = 3
-    cP = 4  # tunable parameters vbbl 2018 + version=3.6.2 choose cQ=3,cG=miu_G (vbbl typo) ,cP=4
+    # Parameters (following VBBL 2018, with minor adjustments)
+    cQ = C_QUADRUPOLE
+    cG = C_GHOST
+    cP = C_PLANET
 
     # basic derivatives
     fz0 = lambda z: -m1 / (z - s) - m2 / z
@@ -77,7 +84,7 @@ def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
     fz3 = lambda z: 6 * m1 / (z - s) ** 4 + 6 * m2 / z**4
     J = lambda z: 1 - fz1(z) * jnp.conj(fz1(z))
 
-    ####Quadrupole test
+    # Quadrupole test
     miu_Q = jnp.abs(
         -2
         * jnp.real(
@@ -88,7 +95,7 @@ def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
         / (J(z) ** 5)
     )
 
-    # cusp test
+    # Cusp test
     miu_C = jnp.abs(jnp.imag(3 * jnp.conj(fz1(z)) ** 3 * fz2(z) ** 2) / (J(z) ** 5))
     mag = jnp.sum(jnp.where(cond, jnp.abs(1 / J(z)), 0), axis=1)
     cond1 = (
@@ -98,7 +105,7 @@ def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
         < tol
     )
 
-    ####ghost image test
+    # Ghost image test
     zwave = jnp.conj(zeta) - fz0(z)
     J_wave = 1 - fz1(z) * fz1(zwave)
     J3 = J_wave * fz2(jnp.conj(z)) * fz1(z)
@@ -106,7 +113,8 @@ def Quadrupole_test(rho, s, q, zeta, z, cond, tol=1e-2):
     miu_G = jnp.where(cond, 0, miu_G)
     cond2 = ((rho + 1e-3) * miu_G * cG < 1).all(axis=1)  # all() is same with VBBL code
 
-    #####planet test # in our frame primary is at s, the planet is at 0, so the position of the planetary caustic is 1/s
+    # Planetary test: in this frame the primary is at s and the low-mass
+    # body at 0, so the planetary caustic is at 1/s
     cond3 = (
         (q > 1e-2)
         | (
@@ -152,11 +160,16 @@ def get_poly_coff(zeta_l, s, m2):
         -1 + 2 * s * zeta_conj + zeta_conj * zeta_l + m2
     )
     c5 = (s - zeta_conj) * zeta_conj
-    coff = jnp.concatenate((c5, c4, c3, c2, c1, c0), axis=1)
-    return coff
+    coeff = jnp.concatenate((c5, c4, c3, c2, c1, c0), axis=1)
+    return coeff
 
 
-def get_zeta_l(rho, trajectory_centroid_l, theta):  # 获得等高线采样的zeta
+# Backward-compatible alias with a clearer name.
+# Keep both to avoid breaking existing imports.
+get_poly_coeff = get_poly_coff
+
+
+def get_zeta_l(rho, trajectory_centroid_l, theta):
     """
     Construct source positions along a circular contour of radius `rho`.
 
@@ -172,7 +185,7 @@ def get_zeta_l(rho, trajectory_centroid_l, theta):  # 获得等高线采样的ze
     return zeta_l
 
 
-def verify(zeta_l, z_l, s, m1, m2):  # verify whether the root is right
+def verify(zeta_l, z_l, s, m1, m2):
     """
     Residual of the lens equation to assess root accuracy.
 
@@ -181,7 +194,7 @@ def verify(zeta_l, z_l, s, m1, m2):  # verify whether the root is right
     return jnp.abs(z_l - m1 / (jnp.conj(z_l) - s) - m2 / jnp.conj(z_l) - zeta_l)
 
 
-def get_parity(z, s, m1, m2):  # get the parity of roots
+def get_parity(z, s, m1, m2):
     """
     Compute image parity sign based on the Jacobian determinant.
     """

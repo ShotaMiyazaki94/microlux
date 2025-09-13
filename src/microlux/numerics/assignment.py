@@ -13,7 +13,7 @@ import jax
 from jax import lax, numpy as jnp, random
 
 
-jax.config.update("jax_enable_x64", True)
+# jax config is set in package __init__
 
 
 def find_nearest(array1, parity1, array2, parity2):
@@ -31,11 +31,12 @@ def find_nearest(array1, parity1, array2, parity2):
     Returns:
         jax.Array: Column indices in `array2` for each row in `array1`.
     """
-    # linear sum assignment, the theoritical complexity is O(n^3) but our relization turns out to be much fast
-    # for small cost matrix. adopted from https://github.com/google/jax/issues/10403 and I make it jit-able
+    # Linear sum assignment. The theoretical complexity is O(n^3), but for
+    # the small cost matrices used here this JAX version is fast enough. Based
+    # on https://github.com/google/jax/issues/10403 with JIT-friendly tweaks.
     cost = (
         jnp.abs(array2 - array1[:, None]) + jnp.abs(parity2 - parity1[:, None]) * 5
-    )  # 系数可以指定防止出现错误，系数越大鲁棒性越好，但是速度会变慢些
+    )  # Larger weight on parity mismatch improves robustness.
     cost = jnp.where(jnp.isnan(cost), 100, cost)
     row_ind, col_idx = solve(cost)
 
@@ -276,7 +277,7 @@ def solve(cost):
     """
 
     # transpose = cost.shape[1] < cost.shape[0]
-    # if transpose:#判断矩阵是否需要转置，对于方阵不需要
+    # if transpose:  # For square matrices no transpose is needed
     #     cost = cost.T
 
     u = jnp.full(cost.shape[0], 0.0)

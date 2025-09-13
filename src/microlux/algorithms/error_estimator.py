@@ -1,19 +1,18 @@
 """
 Error estimation for adaptive contour integration.
 
-This module implements the error terms used to control sampling density in the
-adaptive contour integration loop for binary microlensing. It provides
-parabolic correction terms for ordinary adjacent intervals and special handling
-near critical points where images are created or destroyed.
+Provides the error terms used to control sampling density in the adaptive
+contour integration loop. Includes parabolic correction terms for ordinary
+adjacent intervals and special handling near critical points where images are
+created or destroyed.
 
 Main functions:
-- `error_sum(...)`: Computes the per‑interval error histogram, plus correction
-  terms for critical events and the total parabolic correction used in the
-  magnification estimator.
+- `error_sum(...)`: Per‑interval error histogram, critical‑event correction,
+  and total parabolic correction (pre‑normalization).
 - `error_ordinary(...)`: Error and parabolic correction between adjacent
-  contour samples.
-- `error_critial(...)`: Error contribution near critical points (creation/
-  destruction of images) and associated parabolic correction.
+  samples.
+- `error_critical(...)`: Error contribution near creation/destruction events
+  and associated parabolic correction.
 """
 
 import jax
@@ -60,7 +59,6 @@ def error_ordinary(deXProde2X, de_z, delta_theta, z, parity, de_deXPro_de2X):
         * parity[0:-1]
     )  # new version of parabolic correction term
     dAp = 0.5 * (dAp_v1 + dAp_v2)
-    # dAp = dAp_v1
 
     # e1=jnp.abs(1/48*jnp.abs(jnp.abs(deXProde2X[0:-1]-jnp.abs(deXProde2X[1:])))*delta_theta**3) # old version
     e1 = jnp.abs(dAp_v1 - dAp_v2) * 0.5
@@ -73,16 +71,13 @@ def error_ordinary(deXProde2X, de_z, delta_theta, z, parity, de_deXPro_de2X):
         * (de_deXPro_de2X[0:-1] - de_deXPro_de2X[1:])
         * delta_theta**3
         * parity[0:-1]
-    )  # the gradient of the parabolic correction term
-    e4 = (
-        1 / 10 * jnp.abs(de_dAp)
-    )  ## e4 is the error item to estimate the gradient error of the parabolic correction term
-    # jax.debug.print('{}',jnp.nansum(e4)))
+    )  # gradient of the parabolic correction term
+    e4 = 1 / 10 * jnp.abs(de_dAp)  # gradient error of the parabolic correction
     e_tot = e1 + e2 + e3 + e4
-    return e_tot, dAp  # 抛物线近似的补偿项
+    return e_tot, dAp
 
 
-def error_critial(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
+def error_critical(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
     """
     Error estimation and parabolic correction near a critical point.
 
@@ -118,7 +113,7 @@ def error_critial(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
         / 24
         * (deXProde2X[i, pos_idx] - deXProde2X[i, neg_idx])
         * theta_wave**3
-    )  # old version of parabolic correction term at the critical point
+    )  # old version of the parabolic correction term at the critical point
     dAcP_v2 = (
         -1
         / 12
@@ -130,7 +125,7 @@ def error_critial(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
         )
         * theta_wave
         * parity[i, pos_idx]
-    )  # new version of parabolic correction term at the critical point
+    )  # new version of the parabolic correction term at the critical point
     dAcP = 0.5 * (dAcP_v1 + dAcP_v2)
 
     # ce1=1/48*jnp.abs(deXProde2X[i,pos_idx]+deXProde2X[i,neg_idx])*theta_wave**3 # old version
@@ -157,15 +152,19 @@ def error_critial(pos_idx, neg_idx, i, create, parity, deXProde2X, z, de_z):
         / 2
         * (z[i, pos_idx].imag + z[i, neg_idx].imag)
         * (z[i, pos_idx].real - z[i, neg_idx].real),
-    )  # critial 附近的抛物线近似'''
+    )
 
 
-def error_sum(Roots_State, rho, q, s, mask=None):
+# Backward‑compatible alias (original misspelling kept for safety)
+error_critial = error_critical
+
+
+def error_sum(roots_state, rho, q, s, mask=None):
     """
     Compute error histogram and parabolic corrections for a full contour.
 
     Parameters:
-        Roots_State (Iterative_State): Current state containing theta, roots,
+        roots_state (Iterative_State): Current state containing theta, roots,
             parity, and creation/destruction markers.
         rho (float): Source radius.
         q (float): Mass ratio (m2/m1).
@@ -178,10 +177,10 @@ def error_sum(Roots_State, rho, q, s, mask=None):
             - `mag_c` (float): Critical‑point magnification contribution (pre‑norm).
             - `parab` (float): Sum of parabolic correction terms (pre‑norm).
     """
-    Is_create = Roots_State.Is_create
-    z = Roots_State.roots
-    parity = Roots_State.parity
-    theta = Roots_State.theta
+    Is_create = roots_state.Is_create
+    z = roots_state.roots
+    parity = roots_state.parity
+    theta = roots_state.theta
     if mask is None:
         mask = ~jnp.isnan(z)
     caustic_crossing = (Is_create[3, :] != 0).any()
@@ -216,14 +215,14 @@ def error_sum(Roots_State, rho, q, s, mask=None):
         ## if there is image create or destroy, we need to calculate the error
 
         mag, parab, error_hist = carry
-        critial_row_idx, critial_pos_idx, critial_neg_idx, create_array = Is_create
+        critical_row_idx, critical_pos_idx, critical_neg_idx, create_array = Is_create
         total_num = (create_array != 0).sum()
-        result_row_idx = critial_row_idx
+        result_row_idx = critical_row_idx
         critical_error, dApc, magc = jax.vmap(
-            error_critial, in_axes=(0, 0, 0, 0, None, None, None, None)
+            error_critical, in_axes=(0, 0, 0, 0, None, None, None, None)
         )(
-            critial_pos_idx,
-            critial_neg_idx,
+            critical_pos_idx,
+            critical_neg_idx,
             result_row_idx,
             create_array,
             parity,

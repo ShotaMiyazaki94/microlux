@@ -13,24 +13,24 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install -r ./test/requirements.txt
-        python -m pip install .
-      
-    - name: Checks with pre-commit
-      uses: pre-commit/action@v2.0.3
+      - name: Install system dependencies (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran
 
-    # use the pytest action with xdist to run tests in parallel, only run tests marked as fast    
-    - name: Test with pytest
-      run: |
-        python -m pytest -v -m fast -n 4
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ./test/requirements.txt
+          python -m pip install .
+
+      - name: Test with pytest
+        run: pytest

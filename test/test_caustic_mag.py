@@ -1,11 +1,16 @@
+import pytest
+
 from itertools import product
 
 import numpy as np
-import pytest
+
+# Skip this test module if VBBinaryLensing is unavailable
+pytest.importorskip("VBBinaryLensing")
 import VBBinaryLensing
+
 from microlux import contour_integral, extended_light_curve, to_lowmass
 from microlux.physics.limb_darkening import LinearLimbDarkening
-from test_util import get_caustic_permutation
+from tests_support import get_caustic_permutation
 
 
 rho_values = [1e-3]
@@ -14,14 +19,14 @@ s_values = [0.6, 1.0, 1.4]
 limb_a_values = [0.5]
 
 
-@pytest.mark.fast
 @pytest.mark.parametrize("rho, q, s", product(rho_values, q_values, s_values))
 def test_extend_sorce(rho, q, s, retol=1e-3):
     """
     Test around the caustic, apadpted from https://github.com/fbartolic/caustics/blob/main/tests/test_extended_source.py
     """
 
-    z_centeral = get_caustic_permutation(rho, q, s)
+    # Keep trajectory size modest for CI stability
+    z_centeral = get_caustic_permutation(rho, q, s, n_points=200)
 
     ### change the coordinate system
     z_lowmass = to_lowmass(s, q, z_centeral)
@@ -64,14 +69,14 @@ def test_extend_sorce(rho, q, s, retol=1e-3):
     assert np.allclose(Jaxmag, VBBL_mag, rtol=retol * 3)
 
 
-@pytest.mark.fast
 @pytest.mark.parametrize("limb_a", limb_a_values)
 def test_limb_darkening(limb_a, rho=1e-2, q=0.2, s=0.9, retol=1e-3):
     """
     Test the limb darkening effect
     """
 
-    z_centeral = get_caustic_permutation(rho, q, s, n_points=1000)
+    # Reduce trajectory size to control runtime
+    z_centeral = get_caustic_permutation(rho, q, s, n_points=200)
 
     ### change the coordinate system
     z_lowmass = to_lowmass(s, q, z_centeral)

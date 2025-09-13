@@ -58,7 +58,7 @@ from ..core.utils import (
 )
 
 
-jax.config.update("jax_enable_x64", True)
+# jax config is set in package __init__
 
 
 def analytic_wrapper(trajectory_l, rho, s, q, roots_state, mag_state):
@@ -82,7 +82,7 @@ def analytic_wrapper(trajectory_l, rho, s, q, roots_state, mag_state):
         `mag_state.mag` updated using the analytic correction terms.
     """
 
-    sample_num, theta, roots, parity, ghost_roots_distant, sort_flag, is_created = (
+    sample_num, theta, roots, parity, ghost_roots_distant, sort_flag, is_create = (
         roots_state
     )
     mask = ~jnp.isnan(roots)
@@ -102,7 +102,7 @@ def analytic_wrapper(trajectory_l, rho, s, q, roots_state, mag_state):
         parity,
         ghost_roots_distant,
         sort_flag,
-        is_created,
+        is_create,
     )
     mag_ndarray = (
         (roots_nan_filled.imag[0:-1] + roots_nan_filled.imag[1:])
@@ -346,7 +346,7 @@ def contour_init(rho, s, q, trajectory_l, epsilon, epsilon_rel=0, inite=30, n_it
         n_ite (int, optional): Buffer length for this stage. Default 60.
 
     Returns:
-        tuple: `(trajectory_l, rho, s, q, roots_State, mag_State)` for use as
+        tuple: `(trajectory_l, rho, s, q, roots_state, mag_state)` for use as
         the loop carry in `while_body_fun`.
     """
     m1 = 1 / (1 + q)
@@ -359,9 +359,9 @@ def contour_init(rho, s, q, trajectory_l, epsilon, epsilon_rel=0, inite=30, n_it
     )[:, None]
     error_hist = jnp.ones(n_ite)
     zeta_l = get_zeta_l(rho, trajectory_l, theta)
-    coff = get_poly_coff(zeta_l, s, q / (1 + q))
-    roots, parity, ghost_roots_distant, outloop, coff, zeta_l, theta, _ = get_real_roots(
-        coff, zeta_l, theta, s, m1, m2, jnp.arange(n_ite)
+    coeff = get_poly_coff(zeta_l, s, q / (1 + q))
+    roots, parity, ghost_roots_distant, outloop, coeff, zeta_l, theta, _ = get_real_roots(
+        coeff, zeta_l, theta, s, m1, m2, jnp.arange(n_ite)
     )
 
     buried_error = get_buried_error(ghost_roots_distant, sample_num) / jnp.pi / rho**2
@@ -642,7 +642,7 @@ def update_mag(roots_state, mag_state_last, rho, q, s, buried_error, add_outloop
     mag_no_diff = jnp.where(add_mag_no_diff_num > 0, mag_state_last.mag_no_diff + 1, 0)
 
     error_hist += buried_error
-    mag_State = Error_State(
+    mag_state = Error_State(
         mag,
         mag_no_diff,
         add_outloop + mag_state_last.outloop,
@@ -650,4 +650,4 @@ def update_mag(roots_state, mag_state_last, rho, q, s, buried_error, add_outloop
         epsilon,
         epsilon_rel,
     )
-    return mag_State
+    return mag_state

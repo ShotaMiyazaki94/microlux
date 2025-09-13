@@ -32,10 +32,10 @@ from ..core.state import (
 )
 
 
-jax.config.update("jax_enable_x64", True)
+ # jax config is set in package __init__
 
 
-def add_points(add_idx, add_zeta, add_theta, roots_State, s, m1, m2):
+def add_points(add_idx, add_zeta, add_theta, roots_state, s, m1, m2):
     """
     Insert new sampling rows and integrate them into the working state.
 
@@ -43,7 +43,7 @@ def add_points(add_idx, add_zeta, add_theta, roots_State, s, m1, m2):
         add_idx (jax.Array): Target insert indices per new row (−1 to skip).
         add_zeta (jax.Array): Source positions at new angles.
         add_theta (jax.Array): Angles to insert.
-        roots_State (Iterative_State): Current roots/sampling state.
+        roots_state (Iterative_State): Current roots/sampling state.
         s (float): Binary separation.
         m1 (float): Primary mass fraction.
         m2 (float): Secondary mass fraction.
@@ -55,20 +55,18 @@ def add_points(add_idx, add_zeta, add_theta, roots_State, s, m1, m2):
             - `buried_error` (jax.Array): Error accumulator for buried images.
             - `outloop` (int): Count of deletions due to inconsistent parity.
     """
-    sample_n, theta, roots, parity, ghost_roots_dis, sort_flag, Is_create = roots_State
-    add_coff = get_poly_coff(add_zeta, s, m2)
+    sample_n, theta, roots, parity, ghost_roots_dis, sort_flag, Is_create = roots_state
+    add_coeff = get_poly_coff(add_zeta, s, m2)
     (
         add_roots,
         add_parity,
         add_ghost_roots,
         outloop,
-        add_coff,
+        add_coeff,
         add_zeta,
         add_theta,
         add_idx,
-    ) = get_real_roots(
-        add_coff, add_zeta, add_theta, s, m1, m2, add_idx
-    )  # 可能删掉不合适的根
+    ) = get_real_roots(add_coeff, add_zeta, add_theta, s, m1, m2, add_idx)
 
     sample_n += (add_idx != -1).sum()
 
@@ -88,7 +86,7 @@ def add_points(add_idx, add_zeta, add_theta, roots_State, s, m1, m2):
 
     buried_error = get_buried_error(ghost_roots_dis, sample_n)
 
-    # reorder the whole roots and parity
+    # Reorder all roots and parity for consistent identity across rows
     indices_update, sort_flag = get_sorted_roots(
         unsorted_roots, unsorted_parity, sort_flag, add_theta.shape[0]
     )
@@ -216,8 +214,8 @@ def get_sorted_roots(roots, parity, sort_flag, max_unsorted_num):
         indices = lax.cond(k == -1, lambda x: x, False_fun_sort1, indices)
         return indices, k
 
-    flase_i = jnp.where(~sort_flag, size=max_unsorted_num, fill_value=-1)[0]
-    indices_update, _ = lax.scan(sort_body1, indices, flase_i)
+    false_i = jnp.where(~sort_flag, size=max_unsorted_num, fill_value=-1)[0]
+    indices_update, _ = lax.scan(sort_body1, indices, false_i)
 
     def sort_body2(indices_temp, i):  # sort the roots and parity for new-old pairs
         def False_fun(indices_temp):
@@ -249,7 +247,7 @@ def get_sorted_roots(roots, parity, sort_flag, max_unsorted_num):
     return indices_update2, sort_flag
 
 
-def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
+def get_real_roots(coeff, zeta_l, theta, s, m1, m2, add_idx):
     """
     Solve, validate, and filter physical roots for inserted rows.
 
@@ -262,7 +260,7 @@ def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
         6. Delete remaining inconsistent roots/parity.
 
     Parameters:
-        coff (jax.Array): Polynomial coefficients per row.
+        coeff (jax.Array): Polynomial coefficients per row.
         zeta_l (jax.Array): Source positions per row.
         theta (jax.Array): Angles per row.
         s (float): Binary separation.
@@ -273,18 +271,18 @@ def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
     Returns:
         tuple: Ordered as in the caller expectations:
             (`real_roots`, `real_parity`, `ghost_roots_dis`, `outloop`,
-             `coff`, `zeta_l`, `theta`, `add_idx`).
+             `coeff`, `zeta_l`, `theta`, `add_idx`).
     """
 
     n_ite = zeta_l.shape[0]
     sample_n = (~jnp.isnan(zeta_l)).any(axis=1).sum()
     mask = jnp.arange(n_ite) < sample_n
-    roots = get_roots(n_ite, jnp.where(mask[:, None], coff, 0.0))  # 求有效的根
+    roots = get_roots(n_ite, jnp.where(mask[:, None], coeff, 0.0))
     roots = jnp.where(mask[:, None], roots, jnp.nan)
     parity = get_parity(roots, s, m1, m2)
     error = verify(zeta_l, roots, s, m1, m2)
 
-    iterator = jnp.arange(n_ite)  # new criterion to select the roots, same as the VBBL
+    iterator = jnp.arange(n_ite)  # Criterion to select the roots (VBBL-like)
     dlmin = 1.0e-4
     dlmax = 1.0e-3
     sort_idx = jnp.argsort(error, axis=1)
@@ -306,13 +304,13 @@ def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
     ghost_roots_dis = jnp.where(three_roots_cond, ghost_roots_dis, jnp.nan)[:, None]
 
     # find the wrong parity and fix it
-    nan_num = cond.sum(axis=1)  ##对于没有采样到的位置也是0
+    nan_num = cond.sum(axis=1)
     real_roots = jnp.where(cond, jnp.nan + jnp.nan * 1j, roots)
     real_parity = jnp.where(cond, jnp.nan, parity)
     parity_sum = jnp.nansum(real_parity, axis=1)
     idx_parity_wrong = jnp.where((parity_sum != -1) & mask, size=n_ite, fill_value=-1)[
         0
-    ]  # parity计算出现错误的根的索引
+    ]  # indices for rows with inconsistent parity
     real_parity = lax.cond(
         (idx_parity_wrong != -1).any(),
         update_parity,
@@ -368,7 +366,7 @@ def get_real_roots(coff, zeta_l, theta, s, m1, m2, add_idx):
         real_parity,
         ghost_roots_dis,
         outloop,
-        coff,
+        coeff,
         zeta_l,
         theta,
         add_idx,
@@ -400,7 +398,7 @@ def update_parity(carry):
         real_parity,
     ) = carry
 
-    def loop_parity_body(carry, i):  ##循环体
+    def loop_parity_body(carry, i):
         zeta_l, real_roots, real_parity, nan_num, sample_n, cond, s, m1, m2 = carry
         temp = real_roots[i]
         parity_process_fun = lambda x: lax.cond(
@@ -415,7 +413,7 @@ def update_parity(carry):
             lambda x: x[2],
             (temp, zeta_l, real_parity, i, cond, nan_num, s, m1, m2),
         )
-        # real_parity=lax.cond((nan_num[i]==0)&(i<sample_n),parity_true1_fun,parity_false1_fun,(temp,zeta_l,real_parity,i,cond,nan_num,s,m1,m2))
+        # Alternative parity correction branches kept for reference
         return (zeta_l, real_roots, real_parity, nan_num, sample_n, cond, s, m1, m2), i
 
     carry, _ = lax.scan(
@@ -428,7 +426,7 @@ def update_parity(carry):
     return real_parity
 
 
-def parity_5_roots_fun(carry):  ##对于5个根怎么判断其parity更加合理
+def parity_5_roots_fun(carry):
     """
     Determine parity for ambiguous 5‑image configurations.
 
@@ -436,11 +434,10 @@ def parity_5_roots_fun(carry):  ##对于5个根怎么判断其parity更加合理
     then sort the remaining three by x and assign (+1) to the middle image,
     (−1) to the two side images.
     """
-    ##对于parity计算错误的点，分为fifth principal left center right，其中left center right 的parity为-1，1，-1
     temp, zeta_l, real_parity, i, cond, nan_num, s, m1, m2 = carry
     prin_idx = jnp.where(
         jnp.sign(temp.imag) == jnp.sign(zeta_l.imag[i]), size=1, fill_value=0
-    )[0]  # 主图像的索引
+    )[0]
     prin_root = temp[prin_idx][jnp.newaxis][0]
     prin_root = jnp.concatenate(
         [prin_root, temp[jnp.argmax(get_parity_error(temp, s, m1, m2))][jnp.newaxis]]
@@ -457,7 +454,7 @@ def parity_5_roots_fun(carry):  ##对于5个根怎么判断其parity更加合理
     return real_parity
 
 
-def parity_3_roots_fun(carry):  ##对于3个根怎么判断其parity更加合理
+def parity_3_roots_fun(carry):
     """
     Determine parity for ambiguous 3‑image configurations.
 
@@ -467,7 +464,7 @@ def parity_3_roots_fun(carry):  ##对于3个根怎么判断其parity更加合理
     """
     temp, zeta_l, real_parity, i, cond, nan_num, s, m1, m2 = carry
 
-    def parity_true_fun(carry):  ##通过主图像判断，与zeta位于y轴同一侧的为1
+    def parity_true_fun(carry):
         real_parity = carry
         real_parity = real_parity.at[i, jnp.where(~cond[i], size=3)].set(-1)
         real_parity = real_parity.at[
@@ -510,8 +507,8 @@ def find_create_points(roots, parity, sample_n):
     )  ## the index i can't be the last index
     shift = jnp.where(cond[idx_x, idx_y], 1, 0)
     idx_x_create = idx_x + shift
-    Create_Destory = jnp.where(cond[idx_x, idx_y], 1, -1)
-    Create_Destory = jnp.where(idx_x < 0, 0, Create_Destory)
+    Create_Destroy = jnp.where(cond[idx_x, idx_y], 1, -1)
+    Create_Destroy = jnp.where(idx_x < 0, 0, Create_Destroy)
     critical_idx = idx_x_create[0::2]
     critical_idy1 = idx_y[0::2]
     critical_idy2 = idx_y[1::2]
@@ -521,18 +518,18 @@ def find_create_points(roots, parity, sample_n):
     critical_idy2 = jnp.where(critical_idy2 < 0, 0, critical_idy2)
 
     critical_pos_idy = jnp.where(
-        Create_Destory[0::2] == -1 * parity[critical_idx, critical_idy1],
+        Create_Destroy[0::2] == -1 * parity[critical_idx, critical_idy1],
         critical_idy1,
         critical_idy2,
     )
     critical_neg_idy = jnp.where(
-        Create_Destory[0::2] == 1 * parity[critical_idx, critical_idy1],
+        Create_Destroy[0::2] == 1 * parity[critical_idx, critical_idy1],
         critical_idy1,
         critical_idy2,
     )
 
     return jnp.stack(
-        [critical_idx, critical_pos_idy, critical_neg_idy, Create_Destory[0::2]], axis=0
+        [critical_idx, critical_pos_idy, critical_neg_idy, Create_Destroy[0::2]], axis=0
     )
 
 

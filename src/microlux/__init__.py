@@ -1,8 +1,16 @@
 """
 microlux public API.
 
-Re‑exports commonly used functions and classes for convenience.
+Re‑exports commonly used functions and classes for convenience and sets JAX
+defaults for double precision globally.
 """
+from __future__ import annotations
+
+import jax
+import jax.numpy as jnp
+
+# Enable 64-bit floats everywhere (set once at import time)
+jax.config.update("jax_enable_x64", True)
 # # -*- coding: utf-8 -*-
 __all__ = [
     "point_light_curve",
@@ -13,6 +21,7 @@ __all__ = [
     "Error_State",
     "to_lowmass",
     "to_centroid",
+    "LinearLimbDarkening",
 ]
 
 from .core.lens_equation import (
@@ -29,3 +38,13 @@ from .core.state import (
     Error_State as Error_State,
     Iterative_State as Iterative_State,
 )
+from .physics.limb_darkening import LinearLimbDarkening as LinearLimbDarkening
+
+# Provide a JAX-friendly `jnp.roots` if missing (used in tests)
+try:  # pragma: no cover - compatibility shim
+    _ = jnp.roots  # type: ignore[attr-defined]
+except AttributeError:  # Assign only if not present
+    from .numerics.polynomial import roots as _poly_roots
+
+    # Expose as jnp.roots so downstream code/tests can call `jnp.roots(...)`
+    setattr(jnp, "roots", _poly_roots)

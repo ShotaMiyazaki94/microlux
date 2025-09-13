@@ -28,7 +28,7 @@ from .core.state import (
 )
 
 
-jax.config.update("jax_enable_x64", True)
+# jax config is set in package __init__
 
 
 # @partial(jax.jit,static_argnames=['return_num'])
@@ -51,20 +51,16 @@ def point_light_curve(trajectory_l, s, q, rho, tol, return_num: bool = False):
     m1 = 1 / (1 + q)
     m2 = q / (1 + q)
     zeta_l = trajectory_l[:, None]
-    coff = get_poly_coff(zeta_l, s, m2)
-    z_l = get_roots(trajectory_l.shape[0], coff)
+    coeff = get_poly_coff(zeta_l, s, m2)
+    z_l = get_roots(trajectory_l.shape[0], coeff)
     error = verify(zeta_l, z_l, s, m1, m2)
 
-    iterator = jnp.arange(
-        zeta_l.shape[0]
-    )  # criterion to select the roots, same as the VBBL
+    iterator = jnp.arange(zeta_l.shape[0])  # criterion to select the roots, same as the VBBL
     dlmin = 1.0e-4
     sort_idx = jnp.argsort(error, axis=1)
     third_error = error[iterator, sort_idx[:, 2]]
     forth_error = error[iterator, sort_idx[:, 3]]
-    three_roots_cond = (forth_error * dlmin) > (
-        third_error + 1e-12
-    )  # three roots criterion
+    three_roots_cond = (forth_error * dlmin) > (third_error + 1e-12)  # three roots criterion
     # bad_roots_cond = (~three_roots_cond) & ((forth_error*dlmax) > (third_error+1e-12)) # bad roots criterion
     mask = jnp.ones_like(z_l, dtype=bool)
     full_value = jnp.where(three_roots_cond, False, True)
@@ -77,15 +73,10 @@ def point_light_curve(trajectory_l, s, q, rho, tol, return_num: bool = False):
         return mag, cond
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "default_strategy",
-        "analytic",
-        "return_info",
-        "limb_darkening_coeff",
-    ],
-)
+@partial(jax.jit, static_argnames=["default_strategy", 
+                                   "analytic", 
+                                   "return_info", 
+                                   "limb_darkening_coeff"])
 def binary_mag(
     t_0,
     u_0,

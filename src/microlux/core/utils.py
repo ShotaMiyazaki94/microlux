@@ -101,12 +101,19 @@ def stop_grad_wrapper(func):
     return wrapper
 
 
-def warn_length_not_enough(required_length, Max_length):
+def warn_length_not_enough(required_length, max_length):
     """
-    Emit a warning when sampling capacity is exceeded.
+    Emit a warning when the sampling capacity is exceeded.
+
+    Notes:
+        This typically indicates that the adaptive contour integrator hit the
+        current buffer limit before meeting the requested tolerance. Consider
+        increasing `default_strategy` to allow more samples.
     """
     warnings.warn(
-        "No enough space to insert new samplings, which may cause the error larger than the tolerance. Current length vs max length: {} vs {}. Consider incresing default_strategy parameters.".format(
-            required_length, Max_length - 2
-        )
+        (
+            "Not enough space to insert new samples; the error may exceed the "
+            "tolerance. Current length vs. max length: {} vs {}. Consider "
+            "increasing default_strategy parameters."
+        ).format(required_length, max_length - 2)
     )

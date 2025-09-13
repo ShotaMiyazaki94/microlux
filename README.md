@@ -24,6 +24,16 @@ pip install -e .
 The documentation is available at <a href='https://coastego.github.io/microlux/'>here</a>. See this for more details.
 
 
+## Scripts
+- `scripts/plot_image_contour.py`: quick visualization of image contours for a given setup. Run with `python scripts/plot_image_contour.py`.
+- `scripts/benchmark_mag_map.py`: heavy benchmark comparing VBBL and JAX magnification maps. Requires `VBBinaryLensing`; run with `python scripts/benchmark_mag_map.py`.
+
+## Testing
+- Test entrypoint: run `pytest` from the repo root. It collects tests only from `test/` (configured in `pytest.ini`).
+- Test helpers: `test/tests_support.py` provides utilities used by tests (e.g., `VBBL_light_curve`, `timeit`, `get_caustic_permutation`). These are not part of the public API.
+- Optional deps: some tests compare against `VBBinaryLensing` and may use `MulensModel`. If these are not installed, corresponding checks are skipped.
+- Non-tests: demo/benchmark code lives under `scripts/` and is not collected by `pytest`.
+
   
 ## Citation
 

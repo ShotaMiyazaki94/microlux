@@ -1,9 +1,17 @@
+"""
+Plot image contours for a given microlensing configuration.
+
+Standalone script (not part of pytest). Run:
+    python scripts/plot_image_contour.py
+
+Requires: microlux; Optional: MulensModel for caustic overlay.
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 
 # from microlux import model_numpy
 from microlux import binary_mag, to_centroid, to_lowmass
-from MulensModel import CausticsBinary
 
 
 # deprecated function
@@ -62,18 +70,24 @@ def contour_plot(t_0, b, t_E, rho, q, s, alphadeg, times, retol=1e-3, tol=1e-3):
 
     plt.figure(figsize=(6, 6))
     plt.scatter(source_c.real, source_c.imag, color="r", s=0.5)
-    caustic_1 = CausticsBinary(q, s)
-    caustic_1.plot(5000, s=0.5)
-    x, y = caustic_1.get_caustics()
-    x = caustic_1.critical_curve.x
-    y = caustic_1.critical_curve.y
-    plt.scatter(x, y, s=0.005)
+    try:
+        from MulensModel import CausticsBinary
+
+        caustic_1 = CausticsBinary(q, s)
+        caustic_1.plot(5000, s=0.5)
+        x, y = caustic_1.get_caustics()
+        x = caustic_1.critical_curve.x
+        y = caustic_1.critical_curve.y
+        plt.scatter(x, y, s=0.005)
+    except Exception:
+        print("MulensModel not installed; skipping caustic overlay")
     plt.axis("equal")
 
     roots_l = info[-2].roots
     roots_c = to_centroid(s, q, roots_l)
     plt.scatter(roots_c.real, roots_c.imag, s=0.5)
-    plt.savefig("picture/image_contours2.png")
+    plt.show()
+    # plt.savefig("picture/image_contours2.png")
 
 
 if __name__ == "__main__":
