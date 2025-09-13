@@ -9,8 +9,12 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-# Enable 64-bit floats everywhere (set once at import time)
-jax.config.update("jax_enable_x64", True)
+# Enable 64-bit floats everywhere (set once at import time).
+# Be robust if JAX is mocked (e.g. during Sphinx autodoc).
+try:  # pragma: no cover - docs build compatibility
+    jax.config.update("jax_enable_x64", True)
+except Exception:
+    pass
 # # -*- coding: utf-8 -*-
 __all__ = [
     "point_light_curve",

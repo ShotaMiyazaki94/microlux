@@ -5,4 +5,4 @@ Scripts for demos and benchmarks (not part of tests)
 
 - `benchmark_mag_map.py`: Compare VBBL vs. JAX magnification map performance.
   Heavy; requires `VBBinaryLensing`. Run: `python scripts/benchmark_mag_map.py`
-
+  - Optional: set `MICROLUX_BENCH_CHUNK=<int>` to control JAX batch size (default 64).

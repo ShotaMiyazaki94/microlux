@@ -1,7 +1,7 @@
 ## microlux: Microlensing using Jax
 
 [![Test Status](https://github.com/coastego/microlux/actions/workflows/run_test.yml/badge.svg)](https://github.com/CoastEgo/microlux/actions/workflows/run_test.yml)
-[![Documentation Status](https://github.com/coastego/microlux/actions/workflows/build_docs.yml/badge.svg)](https://coastego.github.io/microlux/)
+[![Documentation Status](https://github.com/coastego/microlux/actions/workflows/build_sphinx.yml/badge.svg)](https://coastego.github.io/microlux/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 ---
 
@@ -21,7 +21,7 @@ cd microlux
 pip install -e .
 ```
 ## Documentation
-The documentation is available at <a href='https://coastego.github.io/microlux/'>here</a>. See this for more details.
+The documentation is available at <a href='https://coastego.github.io/microlux/'>https://coastego.github.io/microlux/</a> (Sphinx, auto-built on `master`).
 
 
 ## Scripts
