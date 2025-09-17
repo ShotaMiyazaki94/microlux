@@ -71,6 +71,4 @@ def test_polynomial_uniform(q, s):
     assert jnp.allclose(AE_roots, numpy_roots, atol=1e-10)
 
 
-if __name__ == "__main__":
-    test_polynomial_caustic(1e-2, 0.2, 0.9)
-    test_polynomial_uniform(0.2, 0.9)
+ 

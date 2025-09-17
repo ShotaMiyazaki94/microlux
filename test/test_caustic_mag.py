@@ -118,6 +118,4 @@ def test_limb_darkening(limb_a, rho=1e-2, q=0.2, s=0.9, retol=1e-3):
     )  # since the limb darkening relization currently is not adaptive, the error is larger than the tolerance, this will be fixed in the future.
 
 
-if __name__ == "__main__":
-    test_extend_sorce(1e-2, 0.2, 0.9)
-    test_limb_darkening(rho=1e-3, q=0.2, s=0.9, limb_a=0.5)
+ 
